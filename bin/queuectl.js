@@ -4,6 +4,8 @@ import { Command } from 'commander';
 import { withDatabase } from '../src/cli/context.js';
 import { parseJobInput, enqueueJob } from '../src/jobs/enqueue.js';
 import { listJobs } from '../src/jobs/list.js';
+import { generateWorkerId } from '../src/worker/id.js';
+import { runWorkerLoop } from '../src/worker/run.js';
 
 const program = new Command();
 
@@ -25,7 +27,9 @@ program
         throw new Error('Provide either inline JSON or --file, not both');
       }
 
-      const jobJson = opts.file ? fs.readFileSync(opts.file, 'utf8') : jobArg;
+      const jobJson = opts.file
+        ? fs.readFileSync(opts.file, 'utf8').replace(/^\uFEFF/, '')
+        : jobArg;
 
       const jobInput = parseJobInput(jobJson);
       await withDatabase(async (db) => {
@@ -44,8 +48,12 @@ worker
   .command('start')
   .description('Start workers in the foreground (blocks until stopped)')
   .option('--count <n>', 'number of worker processes', '1')
-  .action(() => {
-    console.error('worker start: not implemented yet');
+  .action(async () => {
+    const workerId = generateWorkerId();
+    console.log(`Worker ${workerId} started. Press Ctrl+C to stop.`);
+    await withDatabase(async (db) => {
+      await runWorkerLoop(db, { workerId });
+    });
   });
 
 worker
