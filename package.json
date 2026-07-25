@@ -1,0 +1,28 @@
+{
+  "name": "flam_task",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShatadruM/Flam_task.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ShatadruM/Flam_task/issues"
+  },
+  "homepage": "https://github.com/ShatadruM/Flam_task#readme",
+  "dependencies": {
+    "commander": "^15.0.0",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
+    "vitest": "^4.1.10"
+  }
+}
