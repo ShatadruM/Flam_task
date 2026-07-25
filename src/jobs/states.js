@@ -1,0 +1,1 @@
+export const JOB_STATES = ['pending', 'processing', 'completed', 'failed', 'dead'];

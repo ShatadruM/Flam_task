@@ -1,5 +1,9 @@
 #!/usr/bin/env node
+import fs from 'fs';
 import { Command } from 'commander';
+import { withDatabase } from '../src/cli/context.js';
+import { parseJobInput, enqueueJob } from '../src/jobs/enqueue.js';
+import { listJobs } from '../src/jobs/list.js';
 
 const program = new Command();
 
@@ -9,10 +13,29 @@ program
   .version('0.1.0');
 
 program
-  .command('enqueue <job>')
-  .description('Add a new job (JSON string, e.g. \'{"id":"job1","command":"sleep 2"}\')')
-  .action((job) => {
-    console.error('enqueue: not implemented yet');
+  .command('enqueue [job]')
+  .description('Add a new job — inline JSON, or --file path/to/job.json')
+  .option('--file <path>', 'read job JSON from a file instead of an inline argument')
+  .action(async (jobArg, opts) => {
+    try {
+      if (!jobArg && !opts.file) {
+        throw new Error('Provide job JSON inline or via --file <path>');
+      }
+      if (jobArg && opts.file) {
+        throw new Error('Provide either inline JSON or --file, not both');
+      }
+
+      const jobJson = opts.file ? fs.readFileSync(opts.file, 'utf8') : jobArg;
+
+      const jobInput = parseJobInput(jobJson);
+      await withDatabase(async (db) => {
+        const job = await enqueueJob(db, jobInput);
+        console.log(`Enqueued job "${job.id}"`);
+      });
+    } catch (err) {
+      console.error(err.message);
+      process.exitCode = 1;
+    }
   });
 
 const worker = program.command('worker').description('Manage worker processes');
@@ -21,7 +44,7 @@ worker
   .command('start')
   .description('Start workers in the foreground (blocks until stopped)')
   .option('--count <n>', 'number of worker processes', '1')
-  .action((opts) => {
+  .action(() => {
     console.error('worker start: not implemented yet');
   });
 
@@ -44,8 +67,28 @@ program
   .description('List jobs by state')
   .option('--state <state>', 'filter by job state')
   .option('--json', 'output as a JSON array')
-  .action((opts) => {
-    console.error('list: not implemented yet');
+  .action(async (opts) => {
+    try {
+      await withDatabase(async (db) => {
+        const jobs = await listJobs(db, { state: opts.state });
+
+        if (opts.json) {
+          console.log(JSON.stringify(jobs));
+          return;
+        }
+
+        if (jobs.length === 0) {
+          console.log('No jobs found.');
+          return;
+        }
+        for (const job of jobs) {
+          console.log(`${job.id}\t${job.state}\t${job.command}`);
+        }
+      });
+    } catch (err) {
+      console.error(err.message);
+      process.exitCode = 1;
+    }
   });
 
 const dlq = program.command('dlq').description('View or retry dead-lettered jobs');
