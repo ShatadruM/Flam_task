@@ -24,11 +24,11 @@ afterEach(async () => {
 });
 
 describe('parseJobInput', () => {
-  it('parses a valid job JSON string', () => {
+  it('parses a valid job JSON string, leaving max_retries unset for enqueueJob to resolve', () => {
     expect(parseJobInput('{"id":"job1","command":"echo hi"}')).toEqual({
       id: 'job1',
       command: 'echo hi',
-      maxRetries: 3,
+      maxRetries: undefined,
     });
   });
 
@@ -76,5 +76,13 @@ describe('enqueueJob', () => {
     await expect(
       enqueueJob(db, { id: 'job1', command: 'echo hi', maxRetries: 3 })
     ).rejects.toThrow(/already exists/);
+  });
+
+  it('resolves max_retries from config when not given explicitly', async () => {
+    const { setConfig } = await import('../../src/config/config.js');
+    await setConfig(db, 'max-retries', 7);
+
+    const job = await enqueueJob(db, { id: 'job1', command: 'echo hi', maxRetries: undefined });
+    expect(job.max_retries).toBe(7);
   });
 });

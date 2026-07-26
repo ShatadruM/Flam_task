@@ -1,3 +1,5 @@
+import { getConfig } from '../config/config.js';
+
 export function parseJobInput(jsonString) {
   let parsed;
   try {
@@ -19,7 +21,7 @@ export function parseJobInput(jsonString) {
   return {
     id: parsed.id,
     command: parsed.command,
-    maxRetries: parsed.max_retries ?? 3,
+    maxRetries: parsed.max_retries, // may be undefined — resolved against config in enqueueJob
   };
 }
 
@@ -29,12 +31,17 @@ export async function enqueueJob(db, { id, command, maxRetries }) {
     throw new Error(`Job with id "${id}" already exists`);
   }
 
+  // Explicit per-job max_retries wins; otherwise fall back to the current default.
+  // This is why a config change never affects already-enqueued jobs — the value
+  // is resolved and baked into the row at enqueue time, not looked up later.
+  const resolvedMaxRetries = maxRetries ?? Number(await getConfig(db, 'max-retries', 3));
+
   const now = new Date().toISOString();
 
   await db.run(
     `INSERT INTO jobs (id, command, state, attempts, max_retries, next_attempt_at, created_at, updated_at)
      VALUES (?, ?, 'pending', 0, ?, ?, ?, ?)`,
-    id, command, maxRetries, now, now, now
+    id, command, resolvedMaxRetries, now, now, now
   );
 
   return db.get('SELECT * FROM jobs WHERE id = ?', id);

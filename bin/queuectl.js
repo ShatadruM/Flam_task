@@ -6,6 +6,9 @@ import { parseJobInput, enqueueJob } from '../src/jobs/enqueue.js';
 import { listJobs } from '../src/jobs/list.js';
 import { generateWorkerId } from '../src/worker/id.js';
 import { runWorkerLoop } from '../src/worker/run.js';
+import { listDlqJobs, retryDlqJob } from '../src/dlq/dlq.js';
+import { setConfig } from '../src/config/config.js';
+
 
 const program = new Command();
 
@@ -99,29 +102,65 @@ program
     }
   });
 
+
 const dlq = program.command('dlq').description('View or retry dead-lettered jobs');
 
 dlq
   .command('list')
+  .option('--json', 'output as a JSON array')
   .description('List jobs in the DLQ')
-  .action(() => {
-    console.error('dlq list: not implemented yet');
+  .action(async (opts) => {
+    try {
+      await withDatabase(async (db) => {
+        const jobs = await listDlqJobs(db);
+        if (opts.json) {
+          console.log(JSON.stringify(jobs));
+          return;
+        }
+        if (jobs.length === 0) {
+          console.log('DLQ is empty.');
+          return;
+        }
+        for (const job of jobs) {
+          console.log(`${job.id}\t${job.attempts}/${job.max_retries} attempts\t${job.command}`);
+        }
+      });
+    } catch (err) {
+      console.error(err.message);
+      process.exitCode = 1;
+    }
   });
 
 dlq
   .command('retry <id>')
   .description('Re-enqueue a dead job')
-  .action((id) => {
-    console.error('dlq retry: not implemented yet');
+  .action(async (id) => {
+    try {
+      await withDatabase(async (db) => {
+        const job = await retryDlqJob(db, id);
+        console.log(`Job "${job.id}" re-enqueued (attempts reset to 0)`);
+      });
+    } catch (err) {
+      console.error(err.message);
+      process.exitCode = 1;
+    }
   });
 
 const config = program.command('config').description('Manage configuration');
 
 config
   .command('set <key> <value>')
-  .description('Set a config value (e.g. max-retries, backoff-base)')
-  .action((key, value) => {
-    console.error('config set: not implemented yet');
+  .description('Set a config value (max-retries, backoff-base)')
+  .action(async (key, value) => {
+    try {
+      await withDatabase(async (db) => {
+        await setConfig(db, key, value);
+        console.log(`Set ${key} = ${value}`);
+      });
+    } catch (err) {
+      console.error(err.message);
+      process.exitCode = 1;
+    }
   });
 
 program.parse();

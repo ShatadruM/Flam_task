@@ -49,10 +49,4 @@ describe('failJob', () => {
     expect(row.worker_id).toBeNull();
     expect(row.claimed_at).toBeNull();
   });
-
-  it('leaves the job claimable again immediately (backoff comes in Phase 4)', async () => {
-    await failJob(db, 'job1');
-    const job = await claimNextJob(db, 'worker-2');
-    expect(job.id).toBe('job1');
-  });
 });
