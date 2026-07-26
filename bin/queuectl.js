@@ -4,11 +4,12 @@ import { Command } from 'commander';
 import { withDatabase } from '../src/cli/context.js';
 import { parseJobInput, enqueueJob } from '../src/jobs/enqueue.js';
 import { listJobs } from '../src/jobs/list.js';
-import { generateWorkerId } from '../src/worker/id.js';
-import { runWorkerLoop } from '../src/worker/run.js';
 import { listDlqJobs, retryDlqJob } from '../src/dlq/dlq.js';
 import { setConfig } from '../src/config/config.js';
-
+import { generateWorkerId } from '../src/worker/id.js';
+import { runWorkerLoop } from '../src/worker/run.js';
+import { createShutdownController } from '../src/worker/shutdown.js';
+import { runMultipleWorkers } from '../src/worker/spawn.js';
 
 const program = new Command();
 
@@ -51,26 +52,53 @@ worker
   .command('start')
   .description('Start workers in the foreground (blocks until stopped)')
   .option('--count <n>', 'number of worker processes', '1')
-  .action(async () => {
+  .option('--internal-child', 'internal flag: run a single worker loop without re-spawning')
+  .action(async (opts) => {
+    const count = parseInt(opts.count, 10);
+    if (!Number.isInteger(count) || count < 1) {
+      console.error('--count must be a positive integer');
+      process.exitCode = 1;
+      return;
+    }
+
+    if (count > 1 && !opts.internalChild) {
+      await runMultipleWorkers(count);
+      return;
+    }
+
     const workerId = generateWorkerId();
-    console.log(`Worker ${workerId} started. Press Ctrl+C to stop.`);
+    console.log(`Worker ${workerId} started (pid ${process.pid}). Press Ctrl+C to stop.`);
+
+    const shutdown = createShutdownController();
+    const requestStop = (signal) => {
+      console.log(`\nReceived ${signal}, finishing in-flight job then exiting...`);
+      shutdown.requestStop();
+    };
+    process.on('SIGINT', () => requestStop('SIGINT'));
+    process.on('SIGTERM', () => requestStop('SIGTERM'));
+
     await withDatabase(async (db) => {
-      await runWorkerLoop(db, { workerId });
+      await runWorkerLoop(db, {
+        workerId,
+        shouldContinue: () => !shutdown.stopRequested,
+      });
     });
+
+    console.log(`Worker ${workerId} stopped.`);
   });
 
 worker
   .command('stop')
   .description('Gracefully stop all running workers from another terminal')
   .action(() => {
-    console.error('worker stop: not implemented yet');
+    console.error('worker stop: not implemented yet'); // Phase 7
   });
 
 program
   .command('status')
   .description('Summary of all job states & active workers')
   .action(() => {
-    console.error('status: not implemented yet');
+    console.error('status: not implemented yet'); // Phase 8
   });
 
 program
@@ -101,7 +129,6 @@ program
       process.exitCode = 1;
     }
   });
-
 
 const dlq = program.command('dlq').description('View or retry dead-lettered jobs');
 
