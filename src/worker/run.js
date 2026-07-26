@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import { claimNextJob } from '../jobs/claim.js';
 import { completeJob } from '../jobs/complete.js';
 import { failJob } from '../jobs/fail.js';
+import { sweepStaleJobs, DEFAULT_STALE_TIMEOUT_MS } from '../jobs/reaper.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 500;
 
@@ -9,8 +10,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Exit code determines success/failure, per the assignment's job execution spec.
-// stdio: 'ignore' for now — output capture is a bonus feature, not required.
 export function executeCommand(command) {
   try {
     execSync(command, { stdio: 'ignore' });
@@ -20,13 +19,20 @@ export function executeCommand(command) {
   }
 }
 
-// shouldContinue lets tests bound the loop to N iterations, and is also the hook
-// Phase 5 will use for graceful shutdown on SIGTERM/SIGINT.
 export async function runWorkerLoop(
   db,
-  { workerId, pollIntervalMs = DEFAULT_POLL_INTERVAL_MS, shouldContinue = () => true } = {}
+  {
+    workerId,
+    pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+    staleTimeoutMs = DEFAULT_STALE_TIMEOUT_MS,
+    shouldContinue = () => true,
+  } = {}
 ) {
   while (shouldContinue()) {
+    // Every worker sweeps on every iteration — recovery only needs ANY
+    // worker to be alive, not a single dedicated reaper process.
+    await sweepStaleJobs(db, { staleTimeoutMs });
+
     const job = await claimNextJob(db, workerId);
 
     if (!job) {

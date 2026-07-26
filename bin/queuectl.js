@@ -53,6 +53,7 @@ worker
   .description('Start workers in the foreground (blocks until stopped)')
   .option('--count <n>', 'number of worker processes', '1')
   .option('--internal-child', 'internal flag: run a single worker loop without re-spawning')
+  .option('--stale-timeout-ms <ms>', 'internal/test: override the crash-recovery stale timeout')
   .action(async (opts) => {
     const count = parseInt(opts.count, 10);
     if (!Number.isInteger(count) || count < 1) {
@@ -81,12 +82,12 @@ worker
       await runWorkerLoop(db, {
         workerId,
         shouldContinue: () => !shutdown.stopRequested,
+        ...(opts.staleTimeoutMs ? { staleTimeoutMs: parseInt(opts.staleTimeoutMs, 10) } : {}),
       });
     });
 
     console.log(`Worker ${workerId} stopped.`);
   });
-
 worker
   .command('stop')
   .description('Gracefully stop all running workers from another terminal')
