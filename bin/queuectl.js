@@ -10,6 +10,8 @@ import { generateWorkerId } from '../src/worker/id.js';
 import { runWorkerLoop } from '../src/worker/run.js';
 import { createShutdownController } from '../src/worker/shutdown.js';
 import { runMultipleWorkers } from '../src/worker/spawn.js';
+import { writePidFile, removePidFile } from '../src/worker/pidfile.js';
+import { stopAllWorkers } from '../src/worker/stop.js';
 
 const program = new Command();
 
@@ -70,6 +72,13 @@ worker
     const workerId = generateWorkerId();
     console.log(`Worker ${workerId} started (pid ${process.pid}). Press Ctrl+C to stop.`);
 
+    // Register this PID so `worker stop`, running as a separate process, can
+    // find and signal it. process.on('exit') is best-effort cleanup for exit
+    // paths we didn't explicitly handle — it does NOT run on SIGKILL, which
+    // is exactly why stopAllWorkers/the reaper both tolerate stale entries.
+    writePidFile(process.pid);
+    process.on('exit', () => removePidFile(process.pid));
+
     const shutdown = createShutdownController();
     const requestStop = (signal) => {
       console.log(`\nReceived ${signal}, finishing in-flight job then exiting...`);
@@ -86,14 +95,29 @@ worker
       });
     });
 
+    removePidFile(process.pid);
     console.log(`Worker ${workerId} stopped.`);
+    process.exit(0);
   });
+
 worker
   .command('stop')
   .description('Gracefully stop all running workers from another terminal')
-  .action(() => {
-    console.error('worker stop: not implemented yet'); // Phase 7
+  .action(async () => {
+    const { stopped, timedOut } = await stopAllWorkers();
+
+    if (stopped.length > 0) {
+      console.log(`Stopped ${stopped.length} worker(s): ${stopped.join(', ')}`);
+    }
+    if (timedOut.length > 0) {
+      console.error(`Timed out waiting for ${timedOut.length} worker(s) to exit: ${timedOut.join(', ')}`);
+      process.exitCode = 1;
+    }
+    if (stopped.length === 0 && timedOut.length === 0) {
+      console.log('No running workers found.');
+    }
   });
+
 
 program
   .command('status')
