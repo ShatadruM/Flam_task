@@ -12,6 +12,7 @@ import { createShutdownController } from '../src/worker/shutdown.js';
 import { runMultipleWorkers } from '../src/worker/spawn.js';
 import { writePidFile, removePidFile } from '../src/worker/pidfile.js';
 import { stopAllWorkers } from '../src/worker/stop.js';
+import { getStatusSummary } from '../src/cli/status.js';
 
 const program = new Command();
 
@@ -122,8 +123,27 @@ worker
 program
   .command('status')
   .description('Summary of all job states & active workers')
-  .action(() => {
-    console.error('status: not implemented yet'); // Phase 8
+  .option('--json', 'output as JSON')
+  .action(async (opts) => {
+    try {
+      await withDatabase(async (db) => {
+        const summary = await getStatusSummary(db);
+
+        if (opts.json) {
+          console.log(JSON.stringify(summary));
+          return;
+        }
+
+        console.log(`Active workers: ${summary.activeWorkers}`);
+        console.log('Jobs by state:');
+        for (const [state, count] of Object.entries(summary.counts)) {
+          console.log(`  ${state}: ${count}`);
+        }
+      });
+    } catch (err) {
+      console.error(err.message);
+      process.exitCode = 1;
+    }
   });
 
 program

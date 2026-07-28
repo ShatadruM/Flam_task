@@ -45,13 +45,20 @@ describe('worker stop (cross-process)', () => {
 
     await waitFor(() => fs.existsSync(pidDir()) && fs.readdirSync(pidDir()).length === 1, 5000);
 
-    // Run `worker stop` as its own separate process — matches the
-    // interface contract requirement directly.
-    const stopResult = runCliSync(['worker', 'stop']);
-    expect(stopResult.status).toBe(0);
+    // Async spawn here, not spawnSync: spawnSync would block this test
+    // process's event loop while waiting, which prevents Node from reaping
+    // `worker`'s own exit — this test process is `worker`'s real OS parent,
+    // so a blocked event loop leaves it as a zombie, invisible-as-dead to
+    // `worker stop`'s kill(pid, 0) check, until spawnSync unblocks. Async
+    // spawn keeps both resolving concurrently, matching real usage (worker
+    // stop always runs as an unrelated process in its own terminal).
+    const stopProc = spawn('node', [CLI_PATH, 'worker', 'stop'], { cwd });
+    const [stopExitCode] = await Promise.all([
+      new Promise((resolve) => stopProc.on('exit', resolve)),
+      new Promise((resolve) => worker.on('exit', resolve)),
+    ]);
 
-    const exitCode = await new Promise((resolve) => worker.on('exit', resolve));
-    expect(exitCode).toBe(0);
+    expect(stopExitCode).toBe(0);
     expect(fs.readdirSync(pidDir())).toHaveLength(0);
   }, 15000);
 
@@ -90,4 +97,6 @@ describe('worker stop (cross-process)', () => {
     const jobs = JSON.parse(runCliSync(['list', '--json']).stdout || '[]');
     expect(jobs.find((j) => j.id === 'slow1').state).toBe('completed');
   }, 15000);
+  
+
 });
